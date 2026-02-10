@@ -1,0 +1,5 @@
+venv/
+.vscode/
+additions-report.txt
+filter-options-new.json
+unmapped-report.txt

@@ -698,13 +698,13 @@ class OSDRFilterGenerator:
         
         # Save JSON
         output_path = os.path.join(os.getcwd(), 'filter-options-new.json')
-        with open(output_path, 'w') as f:
+        with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_json, f, indent=2)
         print(f"\n✓ JSON: {output_path}")
         
         # Save additions report
         additions_path = os.path.join(os.getcwd(), 'additions-report.txt')
-        with open(additions_path, 'w') as f:
+        with open(additions_path, 'w', encoding='utf-8') as f:
             f.write(f"ADDITIONS REPORT\n{'='*80}\n\nTotal: {len(self.additions)}\n{'='*80}\n\n")
             
             if self.additions:
@@ -722,7 +722,7 @@ class OSDRFilterGenerator:
         
         # Save unmapped report
         unmapped_path = os.path.join(os.getcwd(), 'unmapped-report.txt')
-        with open(unmapped_path, 'w') as f:
+        with open(unmapped_path, 'w', encoding='utf-8') as f:
             f.write(f"UNMAPPED REPORT\n{'='*80}\n\n")
             
             if self.unmapped:
