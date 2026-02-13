@@ -502,7 +502,7 @@ class OSDRFilterGenerator:
             # First check if it exists in current structure (exact match)
             found = False
             if factor_grouping:
-                if self.is_value_in_list(self.norm(factor_name).lower(), factor_grouping['children'], True):
+                if self.is_value_in_list(self.norm(factor_name), factor_grouping['children'], True):
                     found = True
             
             if not found:
@@ -534,6 +534,8 @@ class OSDRFilterGenerator:
         # ORGANISMS
         print("  Processing organisms...")
         col_idx = self.organism_data['columns'].index('study.characteristics.organism')
+
+        organism_grouping = self.get_entry_from_list('organism', self.new_json)
         for row in self.organism_data['data']:
             osd_id = row[0]
             organism = row[col_idx]
@@ -545,30 +547,26 @@ class OSDRFilterGenerator:
             
             # Try exact match first
             found = False
-            if 'Organism' in self.existing_structure:
-                for category, values in self.existing_structure['Organism'].items():
-                    for val in values:
-                        if self.norm(val) == self.norm(organism):
-                            if organism not in self.get_entry_from_list('Organism', self.new_json)[category]:
-                                self.get_entry_from_list('Organism', self.new_json)[category].add(organism)
-                                self.additions.append(('Organism', category, organism))
-                            found = True
-                            break
-                    if found:
-                        break
+            if organism_grouping:
+               if self.is_value_in_list(self.norm(organism), organism_grouping['children'], True):
+                    found = True
             
             # Try taxonomic classification
             if not found:
                 taxonomy = self.categorizer.get_taxonomy_category(organism)
                 if taxonomy:
-                    _, full_category = taxonomy
-                    if organism not in self.get_entry_from_list('Organism', self.new_json)[full_category]:
-                        self.get_entry_from_list('Organism', self.new_json)[full_category].add(organism)
-                        self.additions.append(('Organism', full_category, organism))
+                    taxonomy, full_category = taxonomy
+                    tax_group = self.get_entry_from_list(taxonomy, organism_grouping['children'])
+                    if not tax_group:
+                        tax_group = self.append_new_main_entry(taxonomy, organism_grouping)
+                    self.append_new_main_entry(organism, tax_group)
+                    self.additions.append(('Organism', full_category, organism))
                 else:
-                    if organism not in self.get_entry_from_list('Organism', self.new_json)['Other Organisms']:
-                        self.get_entry_from_list('Organism', self.new_json)['Other Organisms'].add(organism)
-                        self.unmapped.append(('Organism', organism, osd_id))
+                    other_orgs = self.get_entry_from_list('other', organism_grouping['children'])
+                    if not other_orgs:
+                        other_orgs = self.append_new_main_entry('other', organism_grouping)
+                    self.append_new_main_entry(organism, other_orgs)
+                    self.unmapped.append(('Organism', organism, osd_id))
         
         # MATERIALS
         print("  Processing materials...")
