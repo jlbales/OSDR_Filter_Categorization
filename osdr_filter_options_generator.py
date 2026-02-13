@@ -15,6 +15,7 @@ Usage:
     python3 osdr_generator.py
 """
 
+import copy
 import json
 import sys
 import os
@@ -22,6 +23,9 @@ import requests
 import re
 from collections import defaultdict
 
+DEBUG = True
+FILTER_GROUPINGS_TO_UPDATE = ['Project Type', 'Assay Measurement Type', 'Factor', 'Organism', 'Material Type', 'Mission']
+# 'Assay Technology Type', 'Assay Device Platform'
 
 class SmartCategorizer:
     """Intelligent categorization helper"""
@@ -202,7 +206,7 @@ class OSDRFilterGenerator:
         self.material_data = self.fetch_material_data()
         self.mission_data = self.fetch_mission_data()
         
-        self.existing_structure = self.extract_existing_structure()
+        # self.existing_structure = self.extract_existing_structure()
         self.new_json = self.initialize_from_existing()
         
         self.additions = []
@@ -211,6 +215,10 @@ class OSDRFilterGenerator:
     
     def download_current_json(self):
         """Download current filter-options from OSDR"""
+        if DEBUG:
+            with open('starting-filter-options.json', 'r', encoding='utf-8') as input_file:
+                data = json.load(input_file)
+                return data
         try:
             response = self.session.get(self.filter_options_url, timeout=30)
             response.raise_for_status()
@@ -354,21 +362,49 @@ class OSDRFilterGenerator:
     
     def initialize_from_existing(self):
         """Start with all existing values"""
-        new_json = {
-            'Project Type': defaultdict(set),
-            'Assay technology type': defaultdict(set),
-            'Factor': defaultdict(set),
-            'Organism': defaultdict(set),
-            'Material type': defaultdict(set),
-            'Mission': defaultdict(set)
-        }
-        
-        for grouping, categories in self.existing_structure.items():
-            for category, values in categories.items():
-                new_json[grouping][category] = set(values)
-        
+        self.existing_json = []
+        new_json = []
+
+        for category in self.current_json.keys():
+            for grouping in self.current_json[category]:
+                grouping_with_category = copy.deepcopy(grouping)
+                grouping_with_category['category'] = category
+                self.existing_json.append(copy.deepcopy(grouping_with_category))
+                new_json.append(grouping_with_category)
         return new_json
+
+    def get_entry_from_list(self, entry_main_name, list_to_search, search_children=False):
+        for entry in list_to_search:
+            if (entry.get('displayValue') == entry_main_name or (not entry.get('displayValue') and entry['values'][0] == entry_main_name)):
+                return entry
+            if search_children and 'children' in entry:
+                child = self.get_entry_from_list(entry_main_name, entry['children'], True)
+                if child:
+                    return child
+        return None
     
+    def is_value_in_list(self, search_value, list_to_search, search_children=False):
+        for entry in list_to_search:
+            for value in entry['values']:
+                if search_value == value:
+                    return True
+            if search_children and 'children' in entry:
+                if self.is_value_in_list(search_value, entry['children'], True):
+                    return True
+        return False
+
+    def append_new_main_entry(self, entry_main_name, parent_entry):
+        if 'children' not in parent_entry:
+            parent_entry['children'] = []
+        list_to_append = parent_entry['children']
+        
+        if entry_main_name.islower():
+            list_to_append.append({"values":[entry_main_name]})
+        else:
+            list_to_append.append({"displayValue": entry_main_name, "values": [entry_main_name.lower()]})
+
+        return self.get_entry_from_list(entry_main_name, list_to_append)
+
     def process_api_data(self):
         """Process all API data with smart categorization"""
         print("\nProcessing API data...")
@@ -416,22 +452,26 @@ class OSDRFilterGenerator:
             
             # Now add using canonical names for categories
             # Level 1: Measurement type
-            if measurement not in self.new_json['Assay technology type'][canonical_measurement]:
-                self.new_json['Assay technology type'][canonical_measurement].add(measurement)
-                self.additions.append(('Assay technology type', canonical_measurement, measurement))
+            # Check children for measurement
+            measurement_grouping = self.get_entry_from_list('Assay Measurement Type', self.new_json)
+            if not self.is_value_in_list(self.norm(measurement), measurement_grouping['children']):
+                self.append_new_main_entry(measurement, measurement_grouping)
+                self.additions.append(('Assay Measurement Type', canonical_measurement, measurement))
+            if not DEBUG:
+                # Level 2: Measurement|Technology (use canonical names)
+                technology_grouping = self.get_entry_from_list('Assay Technology Type', self.new_json)
+                measurement_tech_cat = f"{canonical_measurement}|{canonical_tech}"
+                if technology not in technology_grouping[measurement_tech_cat]:
+                    technology_grouping[measurement_tech_cat].add(technology)
+                    self.additions.append(('Assay Technology Type', measurement_tech_cat, technology))
             
-            # Level 2: Measurement|Technology (use canonical names)
-            measurement_tech_cat = f"{canonical_measurement}|{canonical_tech}"
-            if technology not in self.new_json['Assay technology type'][measurement_tech_cat]:
-                self.new_json['Assay technology type'][measurement_tech_cat].add(technology)
-                self.additions.append(('Assay technology type', measurement_tech_cat, technology))
-            
-            # Level 3: Measurement|Technology|Platform (use canonical names)
-            if platform:
-                measurement_tech_platform_cat = f"{canonical_measurement}|{canonical_tech}|{canonical_platform}"
-                if platform not in self.new_json['Assay technology type'][measurement_tech_platform_cat]:
-                    self.new_json['Assay technology type'][measurement_tech_platform_cat].add(platform)
-                    self.additions.append(('Assay technology type', measurement_tech_platform_cat, platform))
+                # Level 3: Measurement|Technology|Platform (use canonical names)
+                if platform:
+                    platform_grouping = self.get_entry_from_list('Assay Device Platform', self.new_json)
+                    measurement_tech_platform_cat = f"{canonical_measurement}|{canonical_tech}|{canonical_platform}"
+                    if platform not in platform_grouping[measurement_tech_platform_cat]:
+                        platform_grouping[measurement_tech_platform_cat].add(platform)
+                        self.additions.append(('Assay Device Platform', measurement_tech_platform_cat, platform))
         
         # FACTORS - Create hierarchical structure
         print("  Processing factors...")
@@ -455,47 +495,41 @@ class OSDRFilterGenerator:
             'weightlessness simulation': ['hindlimb unloading', 'partial weight bearing'],
         }
         
+        factor_grouping = self.get_entry_from_list('Factor', self.new_json)
         for col in factor_cols:
             factor_name = col.split('.')[-1]
             
             # First check if it exists in current structure (exact match)
             found = False
-            if 'Factor' in self.existing_structure:
-                for category, values in self.existing_structure['Factor'].items():
-                    for val in values:
-                        if self.norm(val) == self.norm(factor_name):
-                            if factor_name not in self.new_json['Factor'][category]:
-                                self.new_json['Factor'][category].add(factor_name)
-                                self.additions.append(('Factor', category, factor_name))
-                            found = True
-                            break
-                    if found:
-                        break
+            if factor_grouping:
+                if self.is_value_in_list(self.norm(factor_name).lower(), factor_grouping['children'], True):
+                    found = True
             
             if not found:
                 # Check if this factor should be a child of a parent
                 parent_found = False
                 for parent, children in factor_hierarchies.items():
                     if self.norm(factor_name) in [self.norm(c) for c in children]:
-                        # Create hierarchical category: parent|child
+                        # Look for parent, if not there, create it
+                        parent_entry = self.get_entry_from_list(parent, factor_grouping['children'])
+                        if not parent_entry:
+                            parent_entry = self.append_new_main_entry(parent, factor_grouping)
+                        # Add child to parent
+                        self.append_new_main_entry(factor_name, parent_entry)
+
                         hierarchical_cat = f"{parent}|{factor_name}"
-                        if factor_name not in self.new_json['Factor'][hierarchical_cat]:
-                            self.new_json['Factor'][hierarchical_cat].add(factor_name)
-                            self.additions.append(('Factor', hierarchical_cat, factor_name))
-                        
-                        # Also add parent as standalone if not present
-                        if parent not in self.new_json['Factor'][parent]:
-                            self.new_json['Factor'][parent].add(parent)
+                        self.additions.append(('Factor', hierarchical_cat, factor_name))
                         
                         parent_found = True
                         break
                 
                 if not parent_found:
                     # Put in other|factor_name
-                    other_cat = f"other|{factor_name}"
-                    if factor_name not in self.new_json['Factor'][other_cat]:
-                        self.new_json['Factor'][other_cat].add(factor_name)
-                        self.unmapped.append(('Factor', factor_name, 'schema'))
+                    other_entry = self.get_entry_from_list('other', factor_grouping['children'])
+                    if not other_entry:
+                        other_entry = self.append_new_main_entry('other', factor_grouping)
+                    self.append_new_main_entry(factor_name, other_entry)
+                    self.unmapped.append(('Factor', factor_name, 'schema'))
         
         # ORGANISMS
         print("  Processing organisms...")
@@ -515,8 +549,8 @@ class OSDRFilterGenerator:
                 for category, values in self.existing_structure['Organism'].items():
                     for val in values:
                         if self.norm(val) == self.norm(organism):
-                            if organism not in self.new_json['Organism'][category]:
-                                self.new_json['Organism'][category].add(organism)
+                            if organism not in self.get_entry_from_list('Organism', self.new_json)[category]:
+                                self.get_entry_from_list('Organism', self.new_json)[category].add(organism)
                                 self.additions.append(('Organism', category, organism))
                             found = True
                             break
@@ -528,12 +562,12 @@ class OSDRFilterGenerator:
                 taxonomy = self.categorizer.get_taxonomy_category(organism)
                 if taxonomy:
                     _, full_category = taxonomy
-                    if organism not in self.new_json['Organism'][full_category]:
-                        self.new_json['Organism'][full_category].add(organism)
+                    if organism not in self.get_entry_from_list('Organism', self.new_json)[full_category]:
+                        self.get_entry_from_list('Organism', self.new_json)[full_category].add(organism)
                         self.additions.append(('Organism', full_category, organism))
                 else:
-                    if organism not in self.new_json['Organism']['Other Organisms']:
-                        self.new_json['Organism']['Other Organisms'].add(organism)
+                    if organism not in self.get_entry_from_list('Organism', self.new_json)['Other Organisms']:
+                        self.get_entry_from_list('Organism', self.new_json)['Other Organisms'].add(organism)
                         self.unmapped.append(('Organism', organism, osd_id))
         
         # MATERIALS
@@ -557,8 +591,8 @@ class OSDRFilterGenerator:
                 if matched_cat.count('|') == 2 and matched_cat.startswith('muscle|'):
                     # This is muscle|muscle_name|laterality
                     # Add to tier 3
-                    if material not in self.new_json['Material type'][matched_cat]:
-                        self.new_json['Material type'][matched_cat].add(material)
+                    if material not in self.get_entry_from_list('Material type', self.new_json)[matched_cat]:
+                        self.get_entry_from_list('Material type', self.new_json)[matched_cat].add(material)
                         self.additions.append(('Material type', matched_cat, material))
                     
                     # Extract muscle name and ensure tier 2 exists with base name only
@@ -567,8 +601,8 @@ class OSDRFilterGenerator:
                     tier2_cat = f"muscle|{muscle_name}"
                     
                     # Add base muscle name to tier 2 (lowercase version)
-                    if muscle_name not in self.new_json['Material type'][tier2_cat]:
-                        self.new_json['Material type'][tier2_cat].add(muscle_name)
+                    if muscle_name not in self.get_entry_from_list('Material type', self.new_json)[tier2_cat]:
+                        self.get_entry_from_list('Material type', self.new_json)[tier2_cat].add(muscle_name)
                     
                     # Add capitalized version if present in existing data
                     capitalized = muscle_name.title()
@@ -576,17 +610,17 @@ class OSDRFilterGenerator:
                         # Check if capitalized version exists in original
                         for cat_vals in self.existing_structure.get('Material type', {}).values():
                             if capitalized in cat_vals:
-                                if capitalized not in self.new_json['Material type'][tier2_cat]:
-                                    self.new_json['Material type'][tier2_cat].add(capitalized)
+                                if capitalized not in self.get_entry_from_list('Material type', self.new_json)[tier2_cat]:
+                                    self.get_entry_from_list('Material type', self.new_json)[tier2_cat].add(capitalized)
                                 break
                 else:
                     # Regular category
-                    if material not in self.new_json['Material type'][matched_cat]:
-                        self.new_json['Material type'][matched_cat].add(material)
+                    if material not in self.get_entry_from_list('Material type', self.new_json)[matched_cat]:
+                        self.get_entry_from_list('Material type', self.new_json)[matched_cat].add(material)
                         self.additions.append(('Material type', matched_cat, material))
             else:
-                if material not in self.new_json['Material type']['Other Materials']:
-                    self.new_json['Material type']['Other Materials'].add(material)
+                if material not in self.get_entry_from_list('Material type', self.new_json)['Other Materials']:
+                    self.get_entry_from_list('Material type', self.new_json)['Other Materials'].add(material)
                     self.unmapped.append(('Material type', material, osd_id))
         
         # MISSIONS
@@ -631,8 +665,8 @@ class OSDRFilterGenerator:
                 else:
                     category = 'Other Missions'
                 
-                if mission not in self.new_json['Mission'][category]:
-                    self.new_json['Mission'][category].add(mission)
+                if mission not in self.get_entry_from_list('Mission', self.new_json)[category]:
+                    self.get_entry_from_list('Mission', self.new_json)[category].add(mission)
                     if category == 'Other Missions':
                         self.unmapped.append(('Mission', mission, osd_id))
     
@@ -670,8 +704,8 @@ class OSDRFilterGenerator:
             return False
         else:
             print(f"\n✅ SUCCESS: All preserved + {len(self.additions)} added")
-            mission_total = sum(len(v) for v in self.new_json['Mission'].values())
-            print(f"📊 Missions: {mission_total} in {len(self.new_json['Mission'])} categories")
+            mission_total = sum(len(v) for v in self.get_entry_from_list('Mission', self.new_json).values())
+            print(f"📊 Missions: {mission_total} in {len(self.get_entry_from_list('Mission', self.new_json))} categories")
             print(f"📊 OSD IDs: {len(self.all_osd_ids)}")
             return True
     
