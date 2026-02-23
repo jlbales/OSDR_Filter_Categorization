@@ -610,8 +610,8 @@ class OSDRFilterGenerator:
             if matched_cat:
                 self.additions.append(('Material type', matched_cat, material))
             elif matched_cat == None:
-                if not OSDRFilterGenerator.get_child_from_parent('Other Materials', material_type_grouping):
-                    other_materials = OSDRFilterGenerator.append_new_main_entry('Other Materials', material_type_grouping)
+                if not OSDRFilterGenerator.get_child_from_parent('other', material_type_grouping):
+                    other_materials = OSDRFilterGenerator.append_new_main_entry('other', material_type_grouping)
                     if self.norm(material) not in other_materials['values']:
                         other_materials['values'].append(self.norm(material))
                         self.unmapped.append(('Material type', material, osd_id))
@@ -664,25 +664,25 @@ class OSDRFilterGenerator:
                         if category == 'Other Missions':
                             self.unmapped.append(('Mission', mission, osd_id))
 
+    def get_all_values(self, json_to_traverse):
+        values_set = set()
+        if isinstance(json_to_traverse, dict):
+            values_set.update(json_to_traverse["values"])
+            for value in json_to_traverse.values():
+                values_set.update(self.get_all_values(value))
+        elif isinstance(json_to_traverse, list):
+            for item in json_to_traverse:
+                values_set.update(self.get_all_values(item))
+        return values_set
+
     def verify_completeness(self):
         """Verify all original values preserved"""
         print("\n" + "="*80)
         print("VERIFICATION")
         print("="*80)
-        
-        original_values = set()
-        for grouping, categories in self.existing_structure.items():
-            for category, values in categories.items():
-                for val in values:
-                    original_values.add(self.norm(val))
-        
-        new_values = set()
-        for grouping in ['Project Type', 'Assay technology type', 'Factor', 'Organism', 'Material type']:
-            if grouping not in self.new_json:
-                continue
-            for category, values in self.new_json[grouping].items():
-                for val in values:
-                    new_values.add(self.norm(val))
+
+        original_values = self.get_all_values(self.existing_json)
+        new_values = self.get_all_values(self.new_json)
         
         missing = original_values - new_values
         
@@ -690,7 +690,7 @@ class OSDRFilterGenerator:
         print(f"New values (excl. Mission): {len(new_values)}")
         print(f"Values added: {len(self.additions)}")
         print(f"Missing: {len(missing)}")
-        
+
         if missing:
             print(f"\n❌ ERROR: {len(missing)} values missing!")
             for val in sorted(missing)[:20]:
@@ -698,11 +698,29 @@ class OSDRFilterGenerator:
             return False
         else:
             print(f"\n✅ SUCCESS: All preserved + {len(self.additions)} added")
-            mission_total = sum(len(v) for v in OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json).values())
-            print(f"📊 Missions: {mission_total} in {len(OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json))} categories")
+            if not DEBUG:
+                mission_total = sum(len(v) for v in OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json).values())
+                print(f"📊 Missions: {mission_total} in {len(OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json))} categories")
             print(f"📊 OSD IDs: {len(self.all_osd_ids)}")
             return True
     
+    def sort_json(self, json_to_sort):
+        if isinstance(json_to_sort, dict):
+            if 'children' in json_to_sort and (
+                'category' not in json_to_sort or (
+                    'category' in json_to_sort and json_to_sort['category'] == 'study'
+                )
+            ):
+                self.sort_json(json_to_sort['children'])
+        elif isinstance(json_to_sort, list):
+            for item in json_to_sort:
+                self.sort_json(item)
+            json_to_sort.sort(key=lambda x: (
+                str(x['values'][0] == 'other'),
+                str(x['values'][0]).lower()
+                )
+            )
+
     def generate_output_json(self):
         """Generate final JSON"""
         output = {}
@@ -722,12 +740,11 @@ class OSDRFilterGenerator:
         print("Saving outputs")
         print("="*80)
         
-        output_json = self.generate_output_json()
-        
         # Save JSON
+        self.sort_json(self.new_json)
         output_path = os.path.join(os.getcwd(), 'filter-options-new.json')
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(output_json, f, indent=2)
+            json.dump(self.new_json, f)
         print(f"\n✓ JSON: {output_path}")
         
         # Save additions report
