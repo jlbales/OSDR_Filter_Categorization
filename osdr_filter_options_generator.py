@@ -617,53 +617,52 @@ class OSDRFilterGenerator:
                         self.unmapped.append(('Material type', material, osd_id))
         
         # MISSIONS
-        """
-        print("  Processing missions...")
-        col_idx = self.mission_data['columns'].index('investigation.study.comment.project identifier')
-        for row in self.mission_data['data']:
-            osd_id = row[0]
-            missions_str = row[col_idx]
-            
-            if not missions_str:
-                continue
-            
-            self.all_osd_ids.add(osd_id)
-            missions = [m.strip() for m in missions_str.split(',')]
-            
-            for mission in missions:
-                if not mission:
+        if not DEBUG:
+            print("  Processing missions...")
+            col_idx = self.mission_data['columns'].index('investigation.study.comment.project identifier')
+            for row in self.mission_data['data']:
+                osd_id = row[0]
+                missions_str = row[col_idx]
+                
+                if not missions_str:
                     continue
                 
-                mission_lower = self.norm(mission)
+                self.all_osd_ids.add(osd_id)
+                missions = [m.strip() for m in missions_str.split(',')]
                 
-                if any(x in mission_lower for x in ['expedition', 'increment', 'iss']):
-                    category = 'ISS Expeditions'
-                elif any(x in mission_lower for x in ['sts-', 'sts ', 'shuttle', 'sls-']):
-                    category = 'Space Shuttle'
-                elif mission.startswith('RR-') or 'rodent research' in mission_lower:
-                    category = 'Rodent Research'
-                elif any(x in mission_lower for x in ['bion', 'cosmos']):
-                    category = 'Bion/Cosmos'
-                elif any(x in mission_lower for x in ['bric-', 'apex-', 'veg-', 'ffl', 'cbtm', 'cerise']):
-                    category = 'Payload Investigations'
-                elif any(x in mission_lower for x in ['ground', 'bsl', 'baseline']):
-                    category = 'Ground Control'
-                elif any(x in mission_lower for x in ['gamma_irradiation', 'heavy_ion', 'hze', 'proton_irradiation', 
-                                                      'x-ray_irradiation', 'irradiation', 'radiation']):
-                    category = 'Radiation Studies'
-                elif any(x in mission_lower for x in ['hindlimb_unloading', 'simulated_microgravity', 
-                                                       'simulated_hypergravity', 'simulated_environmental']):
-                    category = 'Simulated Conditions'
-                elif any(x in mission_lower for x in ['inspiration4', 'axiom', 'ax-', 'spacex']):
-                    category = 'Commercial Spaceflight'
-                else:
-                    category = 'Other Missions'
-                
-                if mission not in OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json)[category]:
-                    OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json)[category].add(mission)
-                    if category == 'Other Missions':
-                        self.unmapped.append(('Mission', mission, osd_id))
-        """
+                for mission in missions:
+                    if not mission:
+                        continue
+                    
+                    mission_lower = self.norm(mission)
+                    
+                    if any(x in mission_lower for x in ['expedition', 'increment', 'iss']):
+                        category = 'ISS Expeditions'
+                    elif any(x in mission_lower for x in ['sts-', 'sts ', 'shuttle', 'sls-']):
+                        category = 'Space Shuttle'
+                    elif mission.startswith('RR-') or 'rodent research' in mission_lower:
+                        category = 'Rodent Research'
+                    elif any(x in mission_lower for x in ['bion', 'cosmos']):
+                        category = 'Bion/Cosmos'
+                    elif any(x in mission_lower for x in ['bric-', 'apex-', 'veg-', 'ffl', 'cbtm', 'cerise']):
+                        category = 'Payload Investigations'
+                    elif any(x in mission_lower for x in ['ground', 'bsl', 'baseline']):
+                        category = 'Ground Control'
+                    elif any(x in mission_lower for x in ['gamma_irradiation', 'heavy_ion', 'hze', 'proton_irradiation', 
+                                                        'x-ray_irradiation', 'irradiation', 'radiation']):
+                        category = 'Radiation Studies'
+                    elif any(x in mission_lower for x in ['hindlimb_unloading', 'simulated_microgravity', 
+                                                        'simulated_hypergravity', 'simulated_environmental']):
+                        category = 'Simulated Conditions'
+                    elif any(x in mission_lower for x in ['inspiration4', 'axiom', 'ax-', 'spacex']):
+                        category = 'Commercial Spaceflight'
+                    else:
+                        category = 'Other Missions'
+                    
+                    if mission not in OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json)[category]:
+                        OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json)[category].add(mission)
+                        if category == 'Other Missions':
+                            self.unmapped.append(('Mission', mission, osd_id))
 
     def verify_completeness(self):
         """Verify all original values preserved"""
