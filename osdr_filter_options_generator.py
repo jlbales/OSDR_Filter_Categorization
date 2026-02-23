@@ -152,8 +152,10 @@ class SmartCategorizer:
                 return f"{parent}|{laterality} {base_term}"
         
         # Third: Substring matching with existing values
-        if OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True):
-            return '' # TODO add as value to the list of values?
+        found_entry = OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True)
+        if found_entry:
+            found_entry['values'].append(norm_val)
+            return '' #TODO Return the parental structure here so it can be recorded among the additions
         
         # Fourth: Anatomical keyword mapping
         anatomical_keywords = {
@@ -403,12 +405,13 @@ class OSDRFilterGenerator:
         for entry in entry_to_search['children']:
             for value in entry['values']:
                 if search_value == value:
-                    return True
+                    return entry
                 elif partial_matches and (value in search_value or search_value in value):
-                    return True
+                    return entry
             if search_all_descendants:
-                if OSDRFilterGenerator.is_value_in_entry_children(search_value, entry, True):
-                    return True
+                child_entry = OSDRFilterGenerator.is_value_in_entry_children(search_value, entry, True)
+                if child_entry:
+                    return child_entry
         return False
     
     @staticmethod
@@ -614,6 +617,7 @@ class OSDRFilterGenerator:
                         self.unmapped.append(('Material type', material, osd_id))
         
         # MISSIONS
+        """
         print("  Processing missions...")
         col_idx = self.mission_data['columns'].index('investigation.study.comment.project identifier')
         for row in self.mission_data['data']:
@@ -659,7 +663,8 @@ class OSDRFilterGenerator:
                     OSDRFilterGenerator.get_child_from_parent('Mission', self.new_json)[category].add(mission)
                     if category == 'Other Missions':
                         self.unmapped.append(('Mission', mission, osd_id))
-    
+        """
+
     def verify_completeness(self):
         """Verify all original values preserved"""
         print("\n" + "="*80)
