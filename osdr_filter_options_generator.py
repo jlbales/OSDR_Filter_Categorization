@@ -677,12 +677,12 @@ class OSDRFilterGenerator:
             if matched_cat:
                 self.additions.append(('Material type', matched_cat, material))
             elif matched_cat == None:
-                if not OSDRFilterGenerator.get_child_from_parent('other', material_type_grouping):
-                    other_materials = OSDRFilterGenerator.append_new_main_entry('other', material_type_grouping)
-                    if self.norm(material) not in other_materials['values']:
-                        other_materials['values'].append(self.norm(material))
-                        self.unmapped.append(('Material type', material, osd_id))
-        
+                    other_materials = OSDRFilterGenerator.get_child_from_parent('other', material_type_grouping)
+                    if not other_materials:
+                        other_materials = OSDRFilterGenerator.append_new_main_entry('other', material_type_grouping)
+                    OSDRFilterGenerator.append_new_main_entry(self.norm(material), other_materials)
+                    self.unmapped.append(('Material type', material, osd_id))
+
         # MISSIONS
         if not DEBUG:
             print("  Processing missions...")
