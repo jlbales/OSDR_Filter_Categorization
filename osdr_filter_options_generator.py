@@ -150,14 +150,8 @@ class SmartCategorizer:
                 child = OSDRFilterGenerator.append_new_main_entry(f"{laterality} {base_term}", parent)
                 child['values'].append(norm_val)
                 return f"{parent}|{laterality} {base_term}"
-        
-        # Third: Substring matching with existing values
-        found_entry = OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True)
-        if found_entry:
-            found_entry['values'].append(norm_val)
-            return '' #TODO Return the parental structure here so it can be recorded among the additions
-        
-        # Fourth: Anatomical keyword mapping
+           
+        # Third: Anatomical keyword mapping (CHECK BEFORE substring matching!)
         anatomical_keywords = {
             # Brain regions
             'cerebellum': 'brain|cerebellum',
@@ -171,8 +165,10 @@ class SmartCategorizer:
             'subdural space': 'brain|subdural space',
             'forebrain': 'brain|forebrain',
             
-            # Heart
+            # Heart and cardiovascular
             'ventricle': 'heart',
+            'aorta': 'heart|aorta',
+            'left ventricle': 'heart|left ventricle',
             
             # Muscles
             'gastrocnemius': 'muscle|gastrocnemius',
@@ -182,6 +178,96 @@ class SmartCategorizer:
             'extensor digitorum longus': 'muscle|extensor digitorum longus',
             'vastus lateralis': 'muscle|vastus lateralis',
             'calf muscle': 'muscle|calf muscle',
+            'cardiac muscle': 'cardiac muscle tissue',
+            
+            # Organs - Major
+            'liver': 'liver',
+            'kidney': 'kidney',
+            'spleen': 'spleen',
+            'lung': 'lung',
+            'adrenal gland': 'adrenal gland',
+            'thymus': 'thymus',
+            'thyroid': 'thyroid gland',
+            'pituitary': 'pituitary gland',
+            'pancreas': 'pancreas',
+            'hypothalamus': 'hypothalamus',
+            
+            # Reproductive organs
+            'testis': 'testis',
+            'ovary': 'ovary',
+            'uterus': 'uterus',
+            'prostate': 'prostate',
+            'mammary gland': 'mammary gland',
+            'mammary': 'mammary gland',
+            
+            # Digestive system
+            'intestine': 'intestine',
+            'small intestine': 'intestine',
+            'duodenum': 'duodenum',
+            'jejunum': 'jejunum',
+            'ileum': 'ileum',
+            'colon': 'colon',
+            'descending colon': 'descending colon',
+            'large intestine': 'intestines|large intestine',
+            'stomach': 'stomach',
+            'esophagus': 'esophagus',
+            
+            # Diaphragm
+            'diaphragm': 'diaphragm',
+            
+            # Bones and skeletal
+            'femur': 'femur',
+            'tibia': 'tibia',
+            'humerus': 'humerus',
+            'calvariae': 'calvariae',
+            'calvaria': 'calvariae',
+            'vertebrae': 'vertebrae',
+            'vertebra': 'vertebrae',
+            'lumbar': 'vertebrae',
+            'skull': 'skull',
+            'parietal bone': 'skull|parietal bone',
+            'cortical bone': 'cortical bone',
+            'bone marrow': 'bone marrow',
+            'bone marrow of femur': 'femur|bone marrow of femur',
+            'bone marrow of humerus': 'bone marrow|bone marrow of humerus',
+            
+            # Adipose tissue
+            'adipose tissue': 'adipose tissue',
+            'brown adipose tissue': 'adipose tissue|brown adipose tissue',
+            'white adipose tissue': 'adipose tissue|white adipose tissue',
+            'gonadal adipose tissue': 'adipose tissue|gonadal adipose tissue',
+            'mesenteric adipose tissue': 'adipose tissue|mesenteric adipose tissue',
+            'subcutaneous adipose tissue': 'adipose tissue|subcutaneous adipose tissue',
+            
+            # Skin and related
+            'skin': 'skin',
+            'epidermis': 'skin|epidermis',
+            'dermis': 'skin|dermis',
+            'hair follicle': 'skin|hair follicle',
+            
+            # Eye and related
+            'eye': 'eye',
+            'retina': 'retina',
+            'lens': 'lens',
+            'cornea': 'cornea',
+            
+            # Ear and related
+            'ear': 'ear',
+            'cochlea': 'cochlea',
+            
+            # Body fluids
+            'plasma': 'plasma',
+            'serum': 'serum',
+            'saliva': 'saliva',
+            'urine': 'urine',
+            'feces': 'feces',
+            'stool': 'feces',
+            
+            # Extremities
+            'forelimb': 'forelimb',
+            'hindlimb': 'hindlimb',
+            'tail': 'tail',
+            'paw': 'paw',
             
             # Cell types - General
             't cell': 'cells|T cells',
@@ -231,9 +317,34 @@ class SmartCategorizer:
             'opm chamber culture': 'cells|OPM Chamber Culture',
             'isolated cell': 'cells',
             
-            # Plant cells
+            # Microbiology
+            'biofilm': 'biofilms',
+            'bioaerosol': 'bioaerosol',
+            'swab': 'swab',
+            'skin swab': 'swab|skin swab',
+            'surface swab': 'swab|surface swab',
+            'oral swab specimen': 'swab|oral swab specimen',
+            
+            # Plant tissues
+            'root': 'root',
+            'shoot': 'shoot',
+            'leaf': 'leaf',
+            'cotyledon': 'cotyledon',
+            'hypocotyl': 'hypocotyl',
+            'seed': 'seed',
+            'callus': 'callus',
+            'plant callus': 'plant callus',
             'callus cell culture': 'plant callus|callus cell culture',
             'hypocotyl cell culture': 'hypocotyl|hypocotyl cell culture',
+            
+            # Fungal structures
+            'spore': 'spore',
+            'mycelium': 'mycelium',
+            
+            # Special tissue types
+            'cartilage': 'cartilage',
+            'engineered cartilage': 'cartilage|human engineered cartilage',
+            'tendon': 'tendon',
             
             # Special cell types
             'jurkat t cell': 'jurkat t cells',
@@ -243,6 +354,7 @@ class SmartCategorizer:
         
         for keyword, target_cat in anatomical_keywords.items():
             if keyword in norm_val:
+                # Create hierarchical sub-category under parent
                 # Check if target category exists
                 child = material_type_grouping
                 for cat_part in target_cat.split('|'):
@@ -252,13 +364,23 @@ class SmartCategorizer:
                         child = OSDRFilterGenerator.append_new_main_entry(cat_part, parent)
                 child['values'].append(norm_val)
                 return target_cat
+
+        # Fourth: Substring matching with existing values (AFTER keyword matching)
+        found_entry = OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True)
+        if found_entry:
+            found_entry['values'].append(norm_val)
+            return '' #TODO Return the parental structure here so it can be recorded among the additions
         
         return None
 
 
 class OSDRFilterGenerator:
-    def __init__(self):
-        """Initialize and fetch all data"""
+    def __init__(self, input_json_file=None):
+        """Initialize and fetch all data
+        
+        Args:
+            input_json_file: Optional path to input JSON file. If None, downloads from OSDR URL.
+        """
         print("="*80)
         print("NASA OSDR Filter Options Generator - Final Version")
         print("="*80)
@@ -268,8 +390,13 @@ class OSDRFilterGenerator:
         self.session = requests.Session()
         self.categorizer = SmartCategorizer()
         
-        print(f"\nDownloading current filter-options...")
-        self.current_json = self.download_current_json()
+        # Load input JSON - either from file or URL
+        if input_json_file:
+            print(f"\nReading input JSON from file: {input_json_file}")
+            self.current_json = self.read_json_file(input_json_file)
+        else:
+            print(f"\nDownloading current filter-options from OSDR...")
+            self.current_json = self.download_current_json()
         
         print("\nFetching API data...")
         self.assay_data = self.fetch_assay_data()
@@ -285,12 +412,25 @@ class OSDRFilterGenerator:
         self.unmapped = []
         self.all_osd_ids = set()
     
+    def read_json_file(self, filepath):
+        """Read JSON from local file"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            print(f"  ✓ Loaded successfully")
+            return data
+        except FileNotFoundError:
+            print(f"  ✗ Error: File not found: {filepath}")
+            raise
+        except json.JSONDecodeError as e:
+            print(f"  ✗ Error: Invalid JSON: {e}")
+            raise
+        except Exception as e:
+            print(f"  ✗ Failed: {e}")
+            raise
+    
     def download_current_json(self):
         """Download current filter-options from OSDR"""
-        if DEBUG:
-            with open('starting-filter-options.json', 'r', encoding='utf-8') as input_file:
-                data = json.load(input_file)
-                return data
         try:
             response = self.session.get(self.filter_options_url, timeout=30)
             response.raise_for_status()
@@ -569,6 +709,7 @@ class OSDRFilterGenerator:
         # Define parent-child mappings based on manual JSON analysis
         factor_hierarchies = {
             'age': ['age at sample collection', 'age at sample harvest', 'age at start of experiment', 'donor age'],
+            'altered gravity': ['altered gravity duration', 'altered gravity simulator'],
             'duration': ['exposure duration', 'hindlimb reloading duration', 'hindlimb unloading duration', 'treatment duration'],
             'ionizing radiation': ['absorbed radiation dose', 'dose', 'ionizing radiation device or source', 
                                    'number of radiation doses', 'particle charge', 'radiation distance', 'time post-irradiation'],
@@ -613,13 +754,24 @@ class OSDRFilterGenerator:
                         break
                 
                 if not parent_found:
-                    # Put in other|factor_name
-                    other_entry = OSDRFilterGenerator.get_child_from_parent('other', factor_grouping)
-                    if not other_entry:
-                        other_entry = OSDRFilterGenerator.append_new_main_entry('other', factor_grouping)
-                    OSDRFilterGenerator.append_new_main_entry(factor_name, other_entry)
-                    self.unmapped.append(('Factor', factor_name, 'schema'))
-        
+                    # Special handling: if factor contains "altered gravity", create sub-category
+                    if 'altered gravity' in self.norm(factor_name):
+                        hierarchical_cat = f"altered gravity|{factor_name}"
+
+                        # Look for parent, if not there, create it
+                        parent_entry = OSDRFilterGenerator.get_child_from_parent('altered gravity', factor_grouping)
+                        if not parent_entry:
+                            parent_entry = OSDRFilterGenerator.append_new_main_entry(parent, factor_grouping)
+                        # Add child to parent
+                        OSDRFilterGenerator.append_new_main_entry(factor_name, parent_entry)
+                    else:
+                        # Put in other|factor_name
+                        other_entry = OSDRFilterGenerator.get_child_from_parent('other', factor_grouping)
+                        if not other_entry:
+                            other_entry = OSDRFilterGenerator.append_new_main_entry('other', factor_grouping)
+                        OSDRFilterGenerator.append_new_main_entry(factor_name, other_entry)
+                        self.unmapped.append(('Factor', factor_name, 'schema'))
+
         # ORGANISMS
         print("  Processing organisms...")
         col_idx = self.organism_data['columns'].index('study.characteristics.organism')
@@ -875,9 +1027,50 @@ class OSDRFilterGenerator:
         return is_complete
 
 
+def print_usage():
+    """Print usage information"""
+    print("NASA OSDR Filter Options Generator")
+    print()
+    print("Usage:")
+    print("  python3 osdr_filter_options_generator.py [input.json]")
+    print()
+    print("Arguments:")
+    print("  input.json    Optional. Path to input filter-options JSON file")
+    print("                If not provided, downloads from:")
+    print("                https://osdr.nasa.gov/geode-py/ws/repo/filter-options")
+    print()
+    print("Examples:")
+    print("  python3 osdr_filter_options_generator.py")
+    print("    (Uses OSDR URL as input)")
+    print()
+    print("  python3 osdr_filter_options_generator.py filter-options-custom.json")
+    print("    (Uses local file as input)")
+    print()
+    print("Output:")
+    print("  Creates three files in current directory:")
+    print("    - filter-options-new.json")
+    print("    - additions-report.txt")
+    print("    - unmapped-report.txt")
+
+
 def main():
+    # Check for help
+    if len(sys.argv) > 1 and sys.argv[1] in ['-h', '--help', 'help']:
+        print_usage()
+        sys.exit(0)
+    
+    # Get optional input file
+    input_json_file = None
+    if len(sys.argv) > 1:
+        input_json_file = sys.argv[1]
+        if not os.path.exists(input_json_file):
+            print(f"✗ Error: Input file not found: {input_json_file}")
+            print()
+            print_usage()
+            sys.exit(1)
+    
     try:
-        generator = OSDRFilterGenerator()
+        generator = OSDRFilterGenerator(input_json_file)
         success = generator.run()
         sys.exit(0 if success else 1)
     except Exception as e:
