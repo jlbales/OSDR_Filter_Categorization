@@ -115,13 +115,16 @@ class SmartCategorizer:
         if OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True):
             return ''
         
-        # Second: Laterality patterns (left/right/both + term)
+        # Second: Laterality patterns (left/right/both + term, including "both sides")
+        # Matches: "left X", "right X", "both X", "X - both sides", "X- both sides", "X both sides"
         laterality_match = re.match(r'^(left|right|both)\s+(.+)$', norm_val)
+        both_sides_match = re.match(r'^(.+?)[\s\-]*both\s*sides$', norm_val)
+        
         if laterality_match:
             laterality = laterality_match.group(1)
             base_term = laterality_match.group(2).strip()
             
-            # Check if this is a muscle (3-tier hierarchy)
+            # Check if this is a muscle
             matched_muscle = None
             for muscle in muscle_types:
                 if muscle in base_term:
@@ -129,19 +132,16 @@ class SmartCategorizer:
                     break
             
             if matched_muscle:
-                # Create 3-tier: muscle|muscle_name|laterality muscle_name
-                standardized_term = f"{laterality} {matched_muscle}"
+                # Muscles use 2-tier, not 3-tier: muscle|muscle_name
+                # The lateralized value goes INTO this category as a value
                 parent = OSDRFilterGenerator.get_child_from_parent('muscle', material_type_grouping)
                 if not parent:
                     parent = OSDRFilterGenerator.append_new_main_entry('muscle', material_type_grouping)
                 child = OSDRFilterGenerator.get_child_from_parent(matched_muscle, parent)
                 if not child:
                     child = OSDRFilterGenerator.append_new_main_entry(matched_muscle, parent)
-                grandchild = OSDRFilterGenerator.get_child_from_parent(standardized_term, child)
-                if not grandchild:
-                    grandchild = OSDRFilterGenerator.append_new_main_entry(standardized_term, child)
-                grandchild['values'].append(norm_val)
-                return f"muscle|{matched_muscle}|{laterality} {matched_muscle}"
+                child['values'].append(norm_val)
+                return f"muscle|{matched_muscle}"
             
             # For non-muscles, create 2-tier hierarchy
             # Look for parent category with base term
@@ -150,13 +150,112 @@ class SmartCategorizer:
                 child = OSDRFilterGenerator.append_new_main_entry(f"{laterality} {base_term}", parent)
                 child['values'].append(norm_val)
                 return f"{parent}|{laterality} {base_term}"
-           
-        # Third: Anatomical keyword mapping (CHECK BEFORE substring matching!)
+            
+        elif both_sides_match:
+            # Handle "X - both sides", "X- both sides", "X both sides"
+            base_term = both_sides_match.group(1).strip().rstrip('-').strip()
+            
+            # Normalize base term for singular/plural
+            # "adrenal glands" → "adrenal gland"
+            base_term_singular = base_term.rstrip('s') if base_term.endswith('s') else base_term
+            
+            # Check if this is a muscle
+            matched_muscle = None
+            for muscle in muscle_types:
+                if muscle in base_term:
+                    matched_muscle = muscle
+                    break
+            
+            if matched_muscle:
+                # Muscles use 2-tier: muscle|muscle_name
+                parent = OSDRFilterGenerator.get_child_from_parent('muscle', material_type_grouping)
+                if not parent:
+                    parent = OSDRFilterGenerator.append_new_main_entry('muscle', material_type_grouping)
+                child = OSDRFilterGenerator.get_child_from_parent(matched_muscle, parent)
+                if not child:
+                    child = OSDRFilterGenerator.append_new_main_entry(matched_muscle, parent)
+                child['values'].append(norm_val)
+                return f"muscle|{matched_muscle}"
+            
+            # Check if base_term (or singular) matches a keyword
+            # This handles "adrenal glands- both sides" → check "adrenal gland" keyword
+            for check_term in [base_term, base_term_singular]:
+                parent = OSDRFilterGenerator.is_value_in_entry_children(check_term, material_type_grouping, True, True, True)
+                if parent:
+                    child = OSDRFilterGenerator.is_value_in_entry_children(f"both {check_term}", parent)
+                    if not child:
+                        child = OSDRFilterGenerator.append_new_main_entry(f"both {check_term}", parent)
+                    child['values'].append(norm_val)
+                    category = parent['values'][0]
+                    if 'displayValue' in parent:
+                        category = parent['displayValue']
+                    return f"{category}|both {check_term}"
+            
+            # No match found, return as-is
+            child = OSDRFilterGenerator.append_new_main_entry(f"both {base_term}", material_type_grouping)
+            child['values'].append(norm_val)
+            return f"both {base_term}"
+        
+        # Third: Suffix-based categorization (BEFORE general keyword matching)
+        # Check for common suffixes that determine categorization
+        
+        # Rule: ends with "swab" → swab parent category
+        if norm_val.endswith(' swab') or norm_val == 'swab':
+            # Check if swab category exists
+            swab_entry = OSDRFilterGenerator.is_value_in_entry_children('swab', material_type_grouping)
+            if swab_entry and norm_val != 'swab':
+                # Create sub-category under swab
+                child = OSDRFilterGenerator.append_new_main_entry(value, swab_entry)
+                return f"swab|{value}"
+            else:
+                swab_entry['values'].append(norm_val)
+                return 'swab'
+        
+        # Rule: ends with "cells" or "cell" → cells parent category (except blood cells and specific types)
+        if norm_val.endswith(' cells') or norm_val.endswith(' cell'):
+            # Exception 1: blood cells go to blood parent
+            if 'blood' in norm_val:
+                blood_entry = OSDRFilterGenerator.is_value_in_entry_children('blood', material_type_grouping)
+                
+                if blood_entry:
+                    # Create sub-category under blood
+                    child = OSDRFilterGenerator.append_new_main_entry(value, blood_entry)
+                    return f"blood|{value}"
+                else:
+                    blood_entry['values'].append(norm_val)
+                    return 'blood'
+            
+            # Exception 2: T cells should match keyword first (use word boundaries)
+            elif re.search(r'\bt\s+cell', norm_val):
+                # Let keyword matching handle this
+                pass  # Fall through to keyword matching
+            else:
+                # Regular cells - go to cells parent
+                cells_entry = OSDRFilterGenerator.is_value_in_entry_children('cells', material_type_grouping)
+                if cells_entry and norm_val not in ['cell', 'cells']:
+                    child = OSDRFilterGenerator.append_new_main_entry(value, cells_entry)
+                    return f"cells|{value}"
+                else:
+                    cells_entry['values'].append(norm_val)
+                    return 'cells'
+        
+        # Rule: ends with "tumor" → tumor parent category
+        if norm_val.endswith(' tumor'):
+            tumor_entry = OSDRFilterGenerator.is_value_in_entry_children('tumor', material_type_grouping)
+            if tumor_entry and norm_val != 'tumor':
+                child = OSDRFilterGenerator.append_new_main_entry(value, tumor_entry)
+                return f"tumor|{value}"
+            else:
+                tumor_entry['values'].append(norm_val)
+                return 'tumor'
+        
+        # Fourth: Anatomical keyword mapping (CHECK BEFORE substring matching!)
         anatomical_keywords = {
             # Brain regions
             'cerebellum': 'brain|cerebellum',
             'cerebrum': 'brain|cerebrum',
             'cerebral cortex': 'brain|cerebrum',
+            'cerebral hemisphere': 'brain|cerebrum',
             'hippocampus': 'brain|hippocampus',
             'frontal cortex': 'brain|frontal cortex',
             'parietal cortex': 'brain|parietal cortex',
@@ -167,8 +266,12 @@ class SmartCategorizer:
             
             # Heart and cardiovascular
             'ventricle': 'heart',
+            'ventricles': 'heart',
             'aorta': 'heart|aorta',
             'left ventricle': 'heart|left ventricle',
+            'right ventricle': 'heart|right ventricle',
+            'atria': 'heart',
+            'atrium': 'heart',
             
             # Muscles
             'gastrocnemius': 'muscle|gastrocnemius',
@@ -176,6 +279,8 @@ class SmartCategorizer:
             'tibialis anterior': 'muscle|tibialis anterior',
             'quadriceps': 'muscle|quadriceps femoris',
             'extensor digitorum longus': 'muscle|extensor digitorum longus',
+            'extensor digitorum longus- both sides': 'muscle|extensor digitorum longus',
+            'extensor digitorum longus - both sides': 'muscle|extensor digitorum longus',
             'vastus lateralis': 'muscle|vastus lateralis',
             'calf muscle': 'muscle|calf muscle',
             'cardiac muscle': 'cardiac muscle tissue',
@@ -186,11 +291,16 @@ class SmartCategorizer:
             'spleen': 'spleen',
             'lung': 'lung',
             'adrenal gland': 'adrenal gland',
+            'adrenal glands- both sides': 'adrenal gland',
+            'adrenal glands - both sides': 'adrenal gland',
             'thymus': 'thymus',
             'thyroid': 'thyroid gland',
             'pituitary': 'pituitary gland',
             'pancreas': 'pancreas',
             'hypothalamus': 'hypothalamus',
+            
+            # Nervous system
+            'optic nerve': 'optic nerve',
             
             # Reproductive organs
             'testis': 'testis',
@@ -199,18 +309,24 @@ class SmartCategorizer:
             'prostate': 'prostate',
             'mammary gland': 'mammary gland',
             'mammary': 'mammary gland',
+            'placenta': 'placenta',
+            'vaginal specimen': 'vaginal specimen',
+            'vagina': 'vaginal specimen',
+            'zygote': 'zygote',
             
             # Digestive system
             'intestine': 'intestine',
             'small intestine': 'intestine',
+            'large intestine': 'intestine|large intestine',
             'duodenum': 'duodenum',
             'jejunum': 'jejunum',
             'ileum': 'ileum',
             'colon': 'colon',
             'descending colon': 'descending colon',
-            'large intestine': 'intestines|large intestine',
+            'intestines': 'intestine',
             'stomach': 'stomach',
             'esophagus': 'esophagus',
+            'cecum': 'cecum',
             
             # Diaphragm
             'diaphragm': 'diaphragm',
@@ -265,19 +381,26 @@ class SmartCategorizer:
             
             # Extremities
             'forelimb': 'forelimb',
+            'fore limb': 'forelimb',
             'hindlimb': 'hindlimb',
+            'hind limb': 'hindlimb',
             'tail': 'tail',
             'paw': 'paw',
             
             # Cell types - General
+            't cells': 'cells|T cells',
             't cell': 'cells|T cells',
+            'primary t cells': 'cells|T cells',
             'primary t cell': 'cells|T cells',
             'myoblast': 'cells|myoblasts',
+            'myoblasts': 'cells|myoblasts',
             'microglia': 'cells|microglia',
             'vegetative cell': 'cells|vegetative cells',
             'cell pellet': 'cells|cell pellets',
+            'cell pellets': 'cells|cell pellets',
             'primary cell': 'cells|primary cell',
             'skeletal stem cell': 'cells|skeletal stem cells',
+            'skeletal stem cells': 'cells|skeletal stem cells',
             
             # Cell types - Epithelial
             'bronchial epithelial cell': 'cells|bronchial epithelial cell',
@@ -319,8 +442,10 @@ class SmartCategorizer:
             
             # Microbiology
             'biofilm': 'biofilms',
+            'biofilms': 'biofilms',
             'bioaerosol': 'bioaerosol',
             'swab': 'swab',
+            'swabs': 'swab',
             'skin swab': 'swab|skin swab',
             'surface swab': 'swab|surface swab',
             'oral swab specimen': 'swab|oral swab specimen',
@@ -336,6 +461,11 @@ class SmartCategorizer:
             'plant callus': 'plant callus',
             'callus cell culture': 'plant callus|callus cell culture',
             'hypocotyl cell culture': 'hypocotyl|hypocotyl cell culture',
+            'plant stem': 'plant stem',
+            'stem': 'plant stem|stem',
+            'inflorescence': 'plant stem',
+            'rosette': 'plant leaves|rosette',
+            'plants': 'plants',
             
             # Fungal structures
             'spore': 'spore',
@@ -353,7 +483,7 @@ class SmartCategorizer:
         }
         
         for keyword, target_cat in anatomical_keywords.items():
-            if keyword in norm_val:
+            if keyword == norm_val:
                 # Create hierarchical sub-category under parent
                 # Check if target category exists
                 child = material_type_grouping
@@ -362,10 +492,11 @@ class SmartCategorizer:
                     child = OSDRFilterGenerator.get_child_from_parent(cat_part, parent)
                     if not child:
                         child = OSDRFilterGenerator.append_new_main_entry(cat_part, parent)
-                child['values'].append(norm_val)
+                if norm_val not in child['values']:
+                    child['values'].append(norm_val)
                 return target_cat
 
-        # Fourth: Substring matching with existing values (AFTER keyword matching)
+        # Fifth: Substring matching with existing values (AFTER keyword matching)
         found_entry = OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True)
         if found_entry:
             found_entry['values'].append(norm_val)
@@ -606,20 +737,34 @@ class OSDRFilterGenerator:
         return None
     
     @staticmethod
-    def is_value_in_entry_children(search_value, entry_to_search, search_all_descendants=False, partial_matches=False):
+    def is_value_in_entry_children(search_value, entry_to_search, search_all_descendants=False, partial_matches=False, ignore_legacy=False):
         if 'children' not in entry_to_search:
-            return False
+            return None
         for entry in entry_to_search['children']:
             for value in entry['values']:
                 if search_value == value:
                     return entry
                 elif partial_matches and (value in search_value or search_value in value):
+                    # Don't match if category has "both sides" in it (legacy category)
+                    if ignore_legacy and "both sides" in value:
+                        continue
+                    if search_value in value:
+                        # Only match if lengths are similar (within 20% or less than 5 char difference)
+                        len_diff = len(value) - len(search_value)
+                        len_ratio = len(search_value) / len(value) if value else 0
+                        
+                        # Skip match if:
+                        # - value is much shorter (< 80% of existing length)
+                        # - AND difference is more than 5 characters
+                        if len_ratio < 0.8 and len_diff > 5:
+                            continue
                     return entry
-            if search_all_descendants:
+            # Don't match children if category has "both sides" in it (legacy category)
+            if search_all_descendants and (not ignore_legacy or (ignore_legacy and "both_sides" not in value)):
                 child_entry = OSDRFilterGenerator.is_value_in_entry_children(search_value, entry, True)
                 if child_entry:
                     return child_entry
-        return False
+        return None
     
     @staticmethod
     def append_new_main_entry(entry_main_name, parent_entry):
@@ -832,7 +977,7 @@ class OSDRFilterGenerator:
                     other_materials = OSDRFilterGenerator.get_child_from_parent('other', material_type_grouping)
                     if not other_materials:
                         other_materials = OSDRFilterGenerator.append_new_main_entry('other', material_type_grouping)
-                    OSDRFilterGenerator.append_new_main_entry(self.norm(material), other_materials)
+                    OSDRFilterGenerator.append_new_main_entry(material, other_materials)
                     self.unmapped.append(('Material type', material, osd_id))
 
         # MISSIONS
