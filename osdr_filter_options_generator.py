@@ -278,6 +278,7 @@ class SmartCategorizer:
             'soleus': 'muscle|soleus',
             'tibialis anterior': 'muscle|tibialis anterior',
             'quadriceps': 'muscle|quadriceps femoris',
+            'quadriceps muscle': 'muscle|quadriceps femoris',
             'extensor digitorum longus': 'muscle|extensor digitorum longus',
             'extensor digitorum longus- both sides': 'muscle|extensor digitorum longus',
             'extensor digitorum longus - both sides': 'muscle|extensor digitorum longus',
@@ -482,19 +483,27 @@ class SmartCategorizer:
             'primary prostate fibroblast cell culture': 'primary prostate fibroblast cell culture',
         }
         
-        for keyword, target_cat in anatomical_keywords.items():
-            if keyword == norm_val:
-                # Create hierarchical sub-category under parent
-                # Check if target category exists
-                child = material_type_grouping
-                for cat_part in target_cat.split('|'):
-                    parent = child
-                    child = OSDRFilterGenerator.get_child_from_parent(cat_part, parent)
-                    if not child:
-                        child = OSDRFilterGenerator.append_new_main_entry(cat_part, parent)
-                if norm_val not in child['values']:
-                    child['values'].append(norm_val)
-                return target_cat
+        keyword_matches = []
+        for keyword in anatomical_keywords.keys():
+            # Use word boundary matching to avoid partial matches
+            # e.g., "ear" shouldn't match "heart"
+            keyword_pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(keyword_pattern, norm_val):
+                keyword_matches.append(keyword)
+
+        if keyword_matches:
+            max_match = max(keyword_matches, key=lambda x: len(x.split()))
+            # Create hierarchical sub-category under parent
+            # Check if target category exists
+            child = material_type_grouping
+            for cat_part in anatomical_keywords[max_match].split('|'):
+                parent = child
+                child = OSDRFilterGenerator.get_child_from_parent(cat_part, parent)
+                if not child:
+                    child = OSDRFilterGenerator.append_new_main_entry(cat_part, parent)
+            if norm_val not in child['values']:
+                child['values'].append(norm_val)
+            return anatomical_keywords[max_match]
 
         # Fifth: Substring matching with existing values (AFTER keyword matching)
         found_entry = OSDRFilterGenerator.is_value_in_entry_children(norm_val, material_type_grouping, True, True)
