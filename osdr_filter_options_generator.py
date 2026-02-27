@@ -148,7 +148,8 @@ class SmartCategorizer:
             parent = OSDRFilterGenerator.get_child_from_parent(base_term, material_type_grouping)
             if parent:
                 child = OSDRFilterGenerator.append_new_main_entry(f"{laterality} {base_term}", parent)
-                child['values'].append(norm_val)
+                if norm_val not in child['values']:
+                    child['values'].append(norm_val)
                 return f"{parent}|{laterality} {base_term}"
             
         elif both_sides_match:
